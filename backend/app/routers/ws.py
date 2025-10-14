@@ -42,13 +42,13 @@ async def websocket_endpoint(
             data = await websocket.receive_json()
             logger.debug(f"Received data from chat '{chat_id_str}': {data}")
 
-            # Валидация sender_id (предполагаем, что клиент шлет UUID строку)
-            try:
-                sender_uuid_obj = PyUUID(data["sender_id"])
-            except (ValueError, KeyError, TypeError) as e:
-                logger.error(f"Invalid or missing sender_id: {data.get('sender_id')}. Error: {e}")
-                await websocket.send_json({"error": "Invalid or missing sender_id"})
-                continue
+            reply_to_id = data.get("reply_to_message_id")
+            reply_to_uuid = None
+            if reply_to_id:
+                try:
+                    reply_to_uuid = PyUUID(reply_to_id)
+                except ValueError:
+                    logger.warning(f"Invalid reply_to_message_id format: {reply_to_id}")
 
             content = data.get("content")
             if not content: # Простая проверка на пустой контент
@@ -58,12 +58,12 @@ async def websocket_endpoint(
 
             # Создание сообщения в БД
             db_message = models.Message(
-                # id будет сгенерирован БД или default в модели, если не uuid.uuid4()
-                chat_id=chat_uuid_obj,  # <--- Используем проверенный объект UUID чата
-                sender_id=sender_uuid_obj, # Используем проверенный объект UUID отправителя
+                chat_id=chat_uuid_obj,
+                sender_id=sender_uuid_obj,
                 content=content,
                 type=data.get("type", "text"),
-                timestamp=data.get("timestamp", datetime.now())
+                timestamp=data.get("timestamp", datetime.now()),
+                reply_to_message_id=reply_to_uuid
             )
             db.add(db_message)
             db.commit()
@@ -71,14 +71,20 @@ async def websocket_endpoint(
 
             logger.info(f"Message (ID: {db_message.id}) saved to DB for chat (UUID: {chat_uuid_obj})")
 
-            # Формирование ответа для рассылки
+            replied_message_info = None
+            if db_message.replied_to_message:
+                replied_message_info = schemas.RepliedMessageInfo.model_validate(
+                    db_message.replied_to_message
+                ).model_dump() # Преобразуем в dict для JSON
+
             message_to_broadcast = {
                 "id": str(db_message.id),
-                "chat_id": str(db_message.chat_id), # = chat_id_str
+                "chat_id": str(db_message.chat_id),
                 "sender_id": str(db_message.sender_id),
                 "content": db_message.content,
                 "type": db_message.type,
-                "timestamp": db_message.timestamp.isoformat() # Используем ISO формат для datetime
+                "timestamp": db_message.timestamp.isoformat(),
+                "replied_to_message": replied_message_info
             }
             await manager.broadcast(chat_id_str, message_to_broadcast)
 
@@ -86,7 +92,6 @@ async def websocket_endpoint(
         logger.info(f"Client disconnected from chat: {chat_id_str}")
     except Exception as e:
         logger.error(f"Unexpected error in WebSocket for chat {chat_id_str}: {e}", exc_info=True)
-        # exc_info=True добавит traceback в лог
     finally:
         # Убедимся, что соединение удалено из менеджера в любом случае (кроме успешного disconnect)
         # Если WebSocketDisconnect уже обработан, manager.disconnect там уже вызван.

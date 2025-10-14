@@ -8,21 +8,22 @@ enum MessageType { text, image, video, audio }
 
 class Message {
   final String id;
-  final String sender;
+  final String senderId;
   final String content;
   final MessageType type;
   final DateTime timestamp;
+  final Message? repliedToMessage;
 
   String? videoUrl;
-  // ЗАМЕНЯЕМ String? transcription на TranscriptionData? transcription
   TranscriptionData? transcription;
 
   Message({
     required this.id,
-    required this.sender,
+    required this.senderId,
     required this.content,
     required this.type,
     required this.timestamp,
+    this.repliedToMessage,
   }) {
     if (type == MessageType.video) {
       try {
@@ -48,14 +49,29 @@ class Message {
             (e) => e.toString().split('.').last == (json['type'] ?? 'text'),
         orElse: () => MessageType.text);
 
+    Message? repliedTo;
+    if (json['replied_to_message'] != null) {
+      // Создаем "ненастоящее" сообщение из кратких данных
+      repliedTo = Message(
+        id: json['replied_to_message']['id'],
+        senderId: json['replied_to_message']['sender_id'],
+        content: json['replied_to_message']['content'],
+        type: MessageType.values.firstWhere(
+                (e) => e.toString().split('.').last == (json['replied_to_message']['type'] ?? 'text'),
+            orElse: () => MessageType.text),
+        timestamp: DateTime.now(), // Timestamp здесь не важен
+      );
+    }
+
     return Message(
       id: json['id'] ?? const Uuid().v4(),
-      sender: json['sender_id'] ?? json['sender'] ?? 'unknown_sender',
-      content: json['content'] is String ? json['content'] : jsonEncode(json['content']), // Контент может приходить как JSON
+      senderId: json['sender_id'] ?? json['sender'] ?? 'unknown_sender',
+      content: json['content'] is String ? json['content'] : jsonEncode(json['content']),
       type: type,
       timestamp: json['timestamp'] != null
           ? DateTime.parse(json['timestamp'])
           : DateTime.now(),
+      repliedToMessage: repliedTo,
     );
   }
 
@@ -63,7 +79,7 @@ class Message {
     // Этот конструктор очень упрощен, так как нам нужны только content и timestamp
     return Message(
       id: '', // ID не важен для отображения в списке
-      sender: '', // Sender не важен
+      senderId: '', // Sender не важен
       content: json['content'] ?? '',
       type: MessageType.values.firstWhere(
               (e) => e.toString().split('.').last == (json['type'] ?? 'text'),
@@ -79,7 +95,7 @@ class Message {
 
     return Message(
       id: id,
-      sender: sender,
+      senderId: senderId,
       content: jsonEncode(contentData),
       type: type,
       timestamp: timestamp,

@@ -105,8 +105,13 @@ class ChatRepository {
     required String sender,
     required String content,
     MessageType type = MessageType.text,
+    String? replyToMessageId,
   }) {
-    chatSocketService.sendMessage(sender: sender, content: content, type: type);
+    chatSocketService.sendMessage(
+        sender: sender,
+        content: content,
+        type: type,
+        replyToMessageId: replyToMessageId);
   }
 
   void disconnectFromChat() {

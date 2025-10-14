@@ -61,7 +61,7 @@ class ChatSocketService {
           print("Ошибка декодирования сообщения от сокета ($chatId): $e");
           final errorMessage = Message(
             id: _uuid.v4(),
-            sender: "system",
+            senderId: "system",
             content: "Ошибка обработки данных: $e",
             type: MessageType.text, // или специальный тип для ошибок
             timestamp: DateTime.now(),
@@ -74,7 +74,7 @@ class ChatSocketService {
         print("Ошибка WebSocket ($chatId): $error");
         final errorMessage = Message(
           id: _uuid.v4(),
-          sender: "system",
+          senderId: "system",
           content: "Ошибка соединения с чатом. Попробуйте позже.",
           type: MessageType.text,
           timestamp: DateTime.now(),
@@ -88,7 +88,7 @@ class ChatSocketService {
         if (currentChatId == chatId) { // Updated usage // Только если это текущее активное соединение
           final systemMessage = Message(
             id: _uuid.v4(),
-            sender: "system",
+            senderId: "system",
             content: "Соединение с чатом завершено.",
             type: MessageType.text,
             timestamp: DateTime.now(),
@@ -104,16 +104,16 @@ class ChatSocketService {
   }
 
   void sendMessage({
-    required String sender, // ID текущего пользователя
+    required String sender,
     required String content,
     MessageType type = MessageType.text,
+    String? replyToMessageId,
   }) {
-    if (_channel == null || currentChatId == null) { // Updated usage
+    if (_channel == null || currentChatId == null) {
       print("Невозможно отправить сообщение: нет активного соединения с чатом.");
-      // Можно добавить сообщение об ошибке в UI через messagesNotifier
       final errorMessage = Message(
         id: _uuid.v4(),
-        sender: "system",
+        senderId: "system",
         content: "Не удалось отправить сообщение. Нет соединения.",
         type: MessageType.text,
         timestamp: DateTime.now(),
@@ -125,25 +125,17 @@ class ChatSocketService {
 
     final message = Message(
       id: _uuid.v4(), // Клиент генерирует ID для оптимистичного обновления
-      sender: sender,
+      senderId: sender,
       content: content,
       type: type,
       timestamp: DateTime.now(),
     );
 
-    // Оптимистичное обновление: добавляем сообщение в UI сразу
-    final updatedMessages = List<Message>.from(messagesNotifier.value)..add(message);
-    messagesNotifier.value = updatedMessages;
-
-    // Отправляем на сервер. Сервер может вернуть это же сообщение с серверным ID/timestamp
-    // или просто подтверждение. Ваша логика обработки входящих сообщений должна это учесть
-    // (например, не дублировать, если ID совпадает).
-    // Формат сообщения должен соответствовать ожиданиям бэкенда.
     final messageJson = jsonEncode({
-      'sender_id': message.sender, // или просто 'sender'
+      'sender_id': message.senderId,
       'content': message.content,
-      'type': message.type.toString().split('.').last, // 'text', 'video'
-      // 'chat_id': currentChatId, // Updated usage // Если бэкенд требует chat_id в теле сообщения
+      'type': message.type.toString().split('.').last,
+      if (replyToMessageId != null) 'reply_to_message_id': replyToMessageId,
     });
     print("Отправка сообщения ($currentChatId): $messageJson"); // Updated usage
     _channel!.sink.add(messageJson);

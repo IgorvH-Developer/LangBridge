@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,11 +28,13 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  // _chat больше не нужен как отдельное состояние, так как сообщения будут приходить из notifier
   final TextEditingController _textController = TextEditingController();
-  final ImagePicker _picker = ImagePicker(); // Оставляем для выбора видео
+  final ImagePicker _picker = ImagePicker();
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, GlobalKey> _messageKeys = {};
 
   String _currentUserId = '';
+  Message? _replyMessage;
 
   @override
   void initState() {
@@ -96,9 +99,31 @@ class _ChatScreenState extends State<ChatScreen> {
       sender: _currentUserId,
       content: _textController.text.trim(),
       type: MessageType.text,
+      replyToMessageId: _replyMessage?.id,
     );
+
     _textController.clear();
     _saveDraft('');
+    setState(() {
+      _replyMessage = null;
+    });
+  }
+
+  void _enterReplyMode(Message message) {
+    setState(() {
+      _replyMessage = message;
+    });
+  }
+
+  void _scrollToMessage(String messageId) {
+    final key = _messageKeys[messageId];
+    if (key != null && key.currentContext != null) {
+      Scrollable.ensureVisible(
+        key.currentContext!,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   Future<void> _sendVideo() async {
@@ -127,17 +152,40 @@ class _ChatScreenState extends State<ChatScreen> {
             child: ValueListenableBuilder<List<Message>>(
               valueListenable: widget.chatRepository.messagesStream,
               builder: (context, messages, child) {
+                for (var msg in messages) {
+                  _messageKeys.putIfAbsent(msg.id, () => GlobalKey());
+                }
                 if (messages.isEmpty) {
-                  return const Center(child: Text("Нет сообщений."));
+
                 }
                 return ListView.builder(
+                  controller: _scrollController, // Привязываем контроллер
+                  reverse: false, // Для скроллинга к старым сообщениям reverse должен быть false
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
-                    return MessageBubble(
-                      message: msg,
-                      currentUserId: _currentUserId,
-                      chatRepository: widget.chatRepository,
+                    return Slidable( // Оборачиваем бабл в Slidable
+                      key: _messageKeys[msg.id], // Привязываем ключ к виджету
+                      startActionPane: ActionPane(
+                        motion: const StretchMotion(),
+                        extentRatio: 0.25,
+                        children: [
+                          SlidableAction(
+                            onPressed: (_) => _enterReplyMode(msg),
+                            backgroundColor: Theme.of(context).primaryColorLight,
+                            foregroundColor: Colors.black,
+                            icon: Icons.reply,
+                            label: 'Ответ',
+                          ),
+                        ],
+                      ),
+                      child: MessageBubble(
+                        message: msg,
+                        currentUserId: _currentUserId,
+                        chatRepository: widget.chatRepository,
+                        onReply: () => _enterReplyMode(msg),
+                        onQuoteTap: (messageId) => _scrollToMessage(messageId),
+                      ),
                     );
                   },
                 );
@@ -151,28 +199,83 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageComposer() {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
+    return Container(
+      color: Colors.grey[100],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_replyMessage != null)
+            _buildReplyPreview(),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                IconButton(
+                icon: const Icon(Icons.videocam),
+                onPressed: _sendVideo,
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: const InputDecoration(
+                      hintText: "Введите сообщение...",
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: _sendMessage,
+                )
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyPreview() {
+    final message = _replyMessage!;
+    String contentPreview;
+    switch(message.type) {
+      case MessageType.video:
+        contentPreview = "Видеосообщение";
+        break;
+      case MessageType.audio:
+        contentPreview = "Голосовое сообщение";
+        break;
+      default:
+        contentPreview = message.content;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(left: BorderSide(color: Theme.of(context).primaryColor, width: 4)),
+      ),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: _sendVideo,
-          ),
           Expanded(
-            child: TextField(
-              controller: _textController,
-              decoration: const InputDecoration(
-                hintText: "Введите сообщение...",
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => _sendMessage(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  // TODO: Подтягивать имя пользователя по senderId
+                  message.senderId == _currentUserId ? "Вы" : "Собеседник",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
+                ),
+                const SizedBox(height: 2),
+                Text(contentPreview, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.send),
-            onPressed: _sendMessage,
-          ),
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: () => setState(() => _replyMessage = null),
+          )
         ],
       ),
     );
@@ -233,7 +336,7 @@ class _MessageBubbleState extends State<_MessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final isUser = widget.message.sender == widget.currentUserId; // Сравниваем с ID текущего пользователя
+    final isUser = widget.message.senderId == widget.currentUserId; // Сравниваем с ID текущего пользователя
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -242,7 +345,7 @@ class _MessageBubbleState extends State<_MessageBubble> {
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: widget.message.sender == "system"
+          color: widget.message.senderId == "system"
               ? Colors.amber.shade100 // Цвет для системных сообщений
               : isUser
               ? Colors.blue.shade100
@@ -253,9 +356,9 @@ class _MessageBubbleState extends State<_MessageBubble> {
           crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             // Опционально: показать имя отправителя, если это не текущий пользователь и не система
-            if (!isUser && widget.message.sender != "system")
+            if (!isUser && widget.message.senderId != "system")
               Text(
-                widget.message.sender,
+                widget.message.senderId,
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54),
               ),
             if (widget.message.type == MessageType.text)

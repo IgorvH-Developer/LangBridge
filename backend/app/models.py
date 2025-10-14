@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import select, Column, String, Text, ForeignKey, TIMESTAMP, func, Integer, Table, \
     types, Boolean
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, remote, foreign
 from sqlalchemy.ext.hybrid import hybrid_property
 from .database import Base
 
@@ -102,6 +102,7 @@ class Chat(Base):
     def last_message(self, message):
         self._last_message = message
 
+
 class Message(Base):
     __tablename__ = "messages"
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
@@ -110,9 +111,17 @@ class Message(Base):
     content = Column(Text)
     type = Column(String, default="text")
     timestamp = Column(TIMESTAMP, server_default=func.now())
-
-    # --- ДОБАВЛЯЕМ НОВОЕ ПОЛЕ ---
     is_read = Column(Boolean, default=False, nullable=False)
+
+    reply_to_message_id = Column(GUID(), ForeignKey("messages.id"), nullable=True)
+
+    # Отношение для получения сообщения, на которое был дан ответ
+    replied_to_message = relationship(
+        "Message",
+        remote_side=[id], # Связь с самим собой по полю id
+        backref="replies",
+        uselist=False # У одного сообщения может быть только один ответ "на"
+    )
 
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User", back_populates="messages_sent")

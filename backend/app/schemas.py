@@ -92,6 +92,14 @@ class ChatResponse(BaseModel):
     unread_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
+class RepliedMessageInfo(BaseModel):
+    id: PyUUID
+    sender_id: PyUUID
+    content: str
+    type: str
+
+    model_config = ConfigDict(from_attributes=True)
+
 class MessageResponse(BaseModel):
     id: PyUUID
     chat_id: PyUUID
@@ -99,6 +107,8 @@ class MessageResponse(BaseModel):
     content: str
     type: str
     timestamp: datetime
+    replied_to_message: Optional[RepliedMessageInfo] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class ChatWithParticipantsResponse(BaseModel):

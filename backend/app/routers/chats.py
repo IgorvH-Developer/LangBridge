@@ -102,7 +102,11 @@ async def get_chat_messages(
     if not chat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
 
-    messages = db.query(models.Message).filter(models.Message.chat_id == chat_uuid).order_by(models.Message.timestamp).all()
+    messages = db.query(models.Message).options(
+        joinedload(models.Message.replied_to_message)
+    ).filter(
+        models.Message.chat_id == chat_uuid
+    ).order_by(models.Message.timestamp).all()
     return messages
 
 
