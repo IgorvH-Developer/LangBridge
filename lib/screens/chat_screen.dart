@@ -51,7 +51,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadDraft() async {
     final prefs = await SharedPreferences.getInstance();
-    final draft = prefs.getString('draft_${widget.chat.id}');
+    final draft = prefs.getString('draft_\${widget.chat.id}');
     if (draft != null) {
       _textController.text = draft;
     }
@@ -60,9 +60,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _saveDraft(String text) async {
     final prefs = await SharedPreferences.getInstance();
     if (text.trim().isEmpty) {
-      await prefs.remove('draft_${widget.chat.id}');
+      await prefs.remove('draft_\${widget.chat.id}');
     } else {
-      await prefs.setString('draft_${widget.chat.id}', text);
+      await prefs.setString('draft_\${widget.chat.id}', text);
     }
   }
 
@@ -81,7 +81,6 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _currentUserId = userId;
       });
-      // Соединение теперь происходит в репозитории
       await widget.chatRepository.connectToChat(widget.chat);
     }
   }
@@ -156,16 +155,21 @@ class _ChatScreenState extends State<ChatScreen> {
                     final msg = messages[index];
                     return Slidable(
                       key: _messageKeys[msg.id],
-                      startActionPane: ActionPane(
+                      endActionPane: ActionPane(
                         motion: const StretchMotion(),
-                        extentRatio: 0.25,
+                        dismissible: DismissiblePane(
+                          onDismissed: () {},
+                          confirmDismiss: () async {
+                            _enterReplyMode(msg);
+                            return false;
+                          },
+                        ),
                         children: [
                           SlidableAction(
-                            onPressed: (_) => _enterReplyMode(msg),
-                            backgroundColor: Theme.of(context).primaryColorLight,
-                            foregroundColor: Colors.black,
+                            onPressed: (context) => _enterReplyMode(msg),
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Theme.of(context).primaryColor,
                             icon: Icons.reply,
-                            label: 'Ответ',
                           ),
                         ],
                       ),
